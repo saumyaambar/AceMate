@@ -1,5 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
+
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import {
   GraduationCap,
   SquarePen,
@@ -56,8 +60,72 @@ const [renameValue, setRenameValue] = useState("");
 const [subjectToRename, setSubjectToRename] = useState("");
 const [deleteSubjectOpen, setDeleteSubjectOpen] = useState(false);
 const [subjectToDelete, setSubjectToDelete] = useState("");
+const [currentChatId, setCurrentChatId] = useState(null);
+const [recentChats, setRecentChats] = useState([]);
+const [openChatMenu, setOpenChatMenu] = useState(null);
+const [pinnedChats, setPinnedChats] = useState([]);
+const [currentSubject, setCurrentSubject] = useState(null);
+useEffect(() => {
+  const loadRecentChats = async () => {
+    try {
+      const response = await fetch("http://127.0.0.1:8000/chats");
 
+      if (!response.ok) {
+        throw new Error("Failed to load chats");
+      }
 
+      const data = await response.json();
+
+      setRecentChats(data.chats);
+    } catch (error) {
+      console.error("Failed to load recent chats:", error);
+    }
+  };
+
+  loadRecentChats();
+}, []);
+const pinChat = (chat) => {
+  setPinnedChats((currentPinned) => [
+    chat,
+    ...currentPinned,
+  ]);
+
+  setRecentChats((currentRecent) =>
+    currentRecent.filter(
+      (item) => item.chat_id !== chat.chat_id
+    )
+  );
+
+  setOpenChatMenu(null);
+};
+const deleteChat = async (chatId) => {
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:8000/chats/${chatId}`,
+      {
+        method: "DELETE",
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("Failed to delete chat");
+    }
+
+    setRecentChats((currentChats) =>
+      currentChats.filter((chat) => chat.chat_id !== chatId)
+    );
+
+    if (currentChatId === chatId) {
+      setCurrentChatId(null);
+      setChatStarted(false);
+      setChatMessages([]);
+    }
+
+    setOpenChatMenu(null);
+  } catch (error) {
+    console.error("Delete chat error:", error);
+  }
+};
   
   // ================= AUTHENTICATION (FRONTEND MVP) =================
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -74,6 +142,33 @@ const [subjectToDelete, setSubjectToDelete] = useState("");
     // Real authentication + database will be added with FastAPI.
     setIsAuthenticated(true);
   };
+
+  const loadChat = async (chatId) => {
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:8000/chats/${chatId}`
+    );
+
+    if (!response.ok) {
+      throw new Error("Failed to load chat");
+    }
+
+    const data = await response.json();
+
+    const formattedMessages = data.messages.map((item, index) => ({
+      id: `${chatId}-${index}`,
+      role: item.role,
+      text: item.content,
+    }));
+
+    setCurrentChatId(chatId);
+    setChatMessages(formattedMessages);
+    setChatStarted(true);
+    setOpenChatMenu(null);
+  } catch (error) {
+    console.error("Load chat error:", error);
+  }
+};
 
   const sendMessageToBackend = async (text) => {
     const trimmedMessage = text.trim();
@@ -99,16 +194,28 @@ const [subjectToDelete, setSubjectToDelete] = useState("");
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          message: trimmedMessage,
-        }),
-      });
+ body: JSON.stringify({
+  message: trimmedMessage,
+  chat_id: currentChatId,
+  subject: currentSubject,
+}),
+});
 
       if (!response.ok) {
         throw new Error("Backend request failed");
       }
 
       const data = await response.json();
+      setCurrentChatId(data.chat_id);
+      if (!currentChatId) {
+  setRecentChats((currentChats) => [
+    {
+      chat_id: data.chat_id,
+      title: trimmedMessage.slice(0, 50),
+    },
+    ...currentChats,
+  ]);
+}
 
       setChatMessages((currentMessages) => [
         ...currentMessages,
@@ -415,11 +522,12 @@ return (
         <button
           className="side-button new-chat"
           onClick={() => {
-            setChatStarted(true);
-            setChatMessages([]);
-            setMessage("");
-            setMenuOpen(false);
-          }}
+  setCurrentChatId(null);
+  setChatMessages([]);
+  setMessage("");
+  setChatStarted(false);
+  setMenuOpen(false);
+}}
         >
 
           <SquarePen size={18} />
@@ -492,10 +600,18 @@ return (
   return (
     <div className="library-item-wrapper" key={subject}>
 
-      <button className="library-item">
-        <SubjectIcon size={16} />
-        <span>{subject}</span>
-      </button>
+      <button
+  className="library-item"
+  onClick={() => {
+    setCurrentSubject(subject);
+    setCurrentChatId(null);
+    setChatMessages([]);
+    setChatStarted(false);
+  }}
+>
+  <SubjectIcon size={16} />
+  <span>{subject}</span>
+</button>
 
       <button
         className="subject-more-button"
@@ -697,34 +813,154 @@ return (
 
         {/* Pinned */}
 
-        <div className="chat-section">
+       
 
-          <div className="section-heading">
+<div className="chat-section">
 
-            <Pin size={13} />
+  <div className="section-heading">
+    <Pin size={13} />
 
-            <span>
-              Pinned
-            </span>
+    <span>
+      Pinned
+    </span>
+  </div>
+
+  <div className="recent-chats">
+    {pinnedChats.map((chat) => (
+      <div
+        key={chat.chat_id}
+        className="recent-chat-wrapper"
+      >
+        <button
+          className="recent-chat-item"
+          onClick={() => {
+            loadChat(chat.chat_id);
+          }}
+        >
+          {chat.title}
+        </button>
+
+        <button
+          className="recent-chat-more"
+          onClick={(event) => {
+            event.stopPropagation();
+
+            setOpenChatMenu(
+              openChatMenu === chat.chat_id
+                ? null
+                : chat.chat_id
+            );
+          }}
+        >
+          ⋯
+        </button>
+
+        {openChatMenu === chat.chat_id && (
+          <div className="recent-chat-menu">
+
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+
+                setPinnedChats((currentPinned) =>
+                  currentPinned.filter(
+                    (item) =>
+                      item.chat_id !== chat.chat_id
+                  )
+                );
+
+                setRecentChats((currentRecent) => [
+                  chat,
+                  ...currentRecent,
+                ]);
+
+                setOpenChatMenu(null);
+              }}
+            >
+              📌 Unpin
+            </button>
+
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                deleteChat(chat.chat_id);
+              }}
+            >
+              🗑 Delete
+            </button>
 
           </div>
+        )}
+      </div>
+    ))}
+  </div>
 
-        </div>
+</div>
 
 
         {/* Recent */}
 
         <div className="chat-section">
 
-          <div className="section-heading">
+  <div className="section-heading">
+    <span>
+      Recent
+    </span>
+  </div>
 
-            <span>
-              Recent
-            </span>
+  <div className="recent-chats">
+  {recentChats.map((chat) => (
+    <div
+      key={chat.chat_id}
+      className="recent-chat-wrapper"
+    >
+      <button
+        className="recent-chat-item"
+        onClick={() => {
+  loadChat(chat.chat_id);
+}}
+      >
+        {chat.title}
+      </button>
 
-          </div>
+      <button
+        className="recent-chat-more"
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpenChatMenu(
+            openChatMenu === chat.chat_id ? null : chat.chat_id
+          );
+        }}
+      >
+        ⋯
+      </button>
 
+      {openChatMenu === chat.chat_id && (
+        <div className="recent-chat-menu">
+          <button
+            onClick={(event) => {
+  event.stopPropagation();
+  pinChat(chat);
+}}
+          >
+            📌 Pin
+          </button>
+
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              deleteChat(chat.chat_id);
+            }}
+          >
+            🗑 Delete
+          </button>
         </div>
+      )}
+    </div>
+  ))}
+</div>
+
+</div>
 
 
         {/* Profile */}
@@ -850,28 +1086,41 @@ return (
 
                 {menuOpen && (
 
-                  <div className="plus-menu">
+                  <div className="plus-menu" style={{ overflow: "visible" }}>
 
 
-                    <button className="menu-option">
+                    <>
+  <input
+    type="file"
+    id="pdf-upload"
+    accept=".pdf,application/pdf"
+    style={{ display: "none" }}
+    onChange={(e) => {
+      const file = e.target.files?.[0];
 
-                      <div className="menu-icon">
-                        <Paperclip size={20} />
-                      </div>
+      if (!file) return;
 
-                      <div className="menu-text">
+      console.log("Selected PDF:", file.name);
+      alert(`PDF selected: ${file.name}`);
 
-                        <strong>
-                          Add photos / files / notes
-                        </strong>
+      e.target.value = "";
+    }}
+  />
 
-                        <span>
-                          Upload materials to get help
-                        </span>
+  <button
+    className="menu-option"
+    onClick={() => document.getElementById("pdf-upload").click()}
+  >
+    <div className="menu-icon">
+      <Paperclip size={20} />
+    </div>
 
-                      </div>
-
-                    </button>
+    <div className="menu-text">
+      <strong>Add photos / files / notes</strong>
+      <span>Upload materials to get help</span>
+    </div>
+  </button>
+</>
 
 
 
@@ -897,10 +1146,10 @@ return (
 
 
 
-        <div className="quiz-option-wrapper">
+<div className="quiz-option-wrapper">
   <button
     className="menu-option"
-    onClick={() => setQuizSubjectsOpen(!quizSubjectsOpen)}
+    onClick={() => setQuizSubjectsOpen((prev) => !prev)}
   >
     <div className="menu-icon">
       <ClipboardList size={20} />
@@ -918,20 +1167,46 @@ return (
   </button>
 
   {quizSubjectsOpen && (
-    <div className="quiz-subjects">
-      {subjects.map((subject) => (
-        <button
-          key={subject}
-          className="quiz-subject"
-          onClick={() => {
-            setMessage(`Generate a quiz for ${subject}`);
-            setMenuOpen(false);
-            setQuizSubjectsOpen(false);
-          }}
-        >
-          {subject}
-        </button>
-      ))}
+    <div
+      className="quiz-subjects"
+      style={{
+        position: "absolute",
+        left: "calc(100% + 10px)",
+        top: "50%",
+        transform: "translateY(-50%)",
+        width: "230px",
+        maxHeight: "200px",
+        padding: "6px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "1px",
+        background: "#1b1b1d",
+        border: "1px solid #3a3a3d",
+        borderRadius: "14px",
+        boxShadow: "0 12px 30px rgba(0, 0, 0, 0.45)",
+        overflowY: "auto",
+        zIndex: 99999,
+      }}
+    >
+      {subjects.length > 0 ? (
+        subjects.map((subject) => (
+          <button
+            key={subject}
+            className="quiz-subject"
+            onClick={() => {
+              setMessage(`Generate a quiz for ${subject}`);
+              setQuizSubjectsOpen(false);
+              setMenuOpen(false);
+            }}
+          >
+            {subject}
+          </button>
+        ))
+      ) : (
+        <div className="quiz-no-subjects">
+          No subjects available
+        </div>
+      )}
     </div>
   )}
 </div>
@@ -1081,18 +1356,36 @@ return (
                 <Plus size={22} />
                 </button>
                {menuOpen && (
-  <div className="plus-menu chat-plus-menu">
+  <div className="plus-menu chat-plus-menu" style={{ overflow: "visible" }}>
 
-    <button className="menu-option">
-      <div className="menu-icon">
-        <Paperclip size={20} />
-      </div>
+    <button
+  className="menu-option"
+  onClick={() => document.getElementById("acemate-file-input").click()}
+>
+  <div className="menu-icon">
+    <Paperclip size={20} />
+  </div>
 
-      <div className="menu-text">
-        <strong>Add photos / files / notes</strong>
-        <span>Upload materials to get help</span>
-      </div>
-    </button>
+  <div className="menu-text">
+    <strong>Add photos / files / notes</strong>
+    <span>Upload materials to get help</span>
+  </div>
+</button>
+
+<input
+  id="acemate-file-input"
+  type="file"
+  accept="image/*,.pdf,.txt,.doc,.docx"
+  style={{ display: "none" }}
+  onChange={(event) => {
+    const file = event.target.files[0];
+
+    if (file) {
+      console.log("Selected file:", file);
+      setMenuOpen(false);
+    }
+  }}
+/>
 
     <button className="menu-option">
       <div className="menu-icon">
@@ -1105,18 +1398,61 @@ return (
       </div>
     </button>
 
-    <button className="menu-option">
-      <div className="menu-icon">
-        <ClipboardList size={20} />
-      </div>
+    <div className="quiz-option-wrapper">
+      <button
+        className="menu-option"
+        onClick={() => setQuizSubjectsOpen((prev) => !prev)}
+      >
+        <div className="menu-icon">
+          <ClipboardList size={20} />
+        </div>
 
-      <div className="menu-text">
-        <strong>Generate quiz</strong>
-        <span>Choose a subject</span>
-      </div>
+        <div className="menu-text">
+          <strong>Generate quiz</strong>
+          <span>Choose a subject</span>
+        </div>
 
-      <ChevronRight size={17} />
-    </button>
+        <ChevronRight size={17} />
+      </button>
+
+      {quizSubjectsOpen && (
+        <div
+          className="quiz-subjects"
+          style={{
+            position: "absolute",
+            left: "calc(100% + 10px)",
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: "230px",
+            maxHeight: "200px",
+            padding: "6px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "1px",
+            background: "#1b1b1d",
+            border: "1px solid #3a3a3d",
+            borderRadius: "14px",
+            boxShadow: "0 12px 30px rgba(0, 0, 0, 0.45)",
+            overflowY: "auto",
+            zIndex: 99999,
+          }}
+        >
+          {subjects.map((subject) => (
+            <button
+              key={subject}
+              className="quiz-subject"
+              onClick={() => {
+                setMessage(`Generate a quiz for ${subject}`);
+                setQuizSubjectsOpen(false);
+                setMenuOpen(false);
+              }}
+            >
+              {subject}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
 
     <button className="menu-option">
       <div className="menu-icon">
@@ -1295,7 +1631,7 @@ return (
     </div>
 
   );
-}
 
+}
 
 export default App;
