@@ -196,40 +196,24 @@ def chat(request: ChatRequest):
         print("Response generated using DeepSeek")
 
 
-    # --------------------------------------------------
-    # FALLBACK 1: GEMINI
-    # --------------------------------------------------
-
-    except Exception as error:
-
-        print(f"DeepSeek failed: {error}")
-        print("Trying Gemini...")
 
 
-        try:
-
-            response = gemini_client.models.generate_content(
-                model="gemini-3.6-flash",
-                contents=conversation
-            )
-
-            reply = response.text
-            model_used = "gemini-3.6-flash"
-
-            print("Response generated using Gemini")
+    
 
 
         # --------------------------------------------------
         # FALLBACK 2: OLLAMA
         # --------------------------------------------------
 
-        except Exception as gemini_error:
+    except Exception as error:
 
-            print(f"Gemini failed: {gemini_error}")
-            print("Trying Ollama...")
+        
+
+     print(f"DeepSeek failed: {error}")
+     print("Trying Ollama...")
 
 
-            try:
+    try:
 
                 
                 response = ollama.chat(
@@ -243,7 +227,7 @@ def chat(request: ChatRequest):
                 print("Response generated using Ollama")
 
 
-            except Exception as ollama_error:
+    except Exception as ollama_error:
 
                 print(f"Ollama failed: {ollama_error}")
 
@@ -293,6 +277,7 @@ def get_chats():
             "_id": 0,
             "chat_id": 1,
             "title": 1,
+            "subject": 1,
             "created_at": 1
         }
     ).sort("created_at", -1)

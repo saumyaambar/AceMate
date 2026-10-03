@@ -697,7 +697,17 @@ return (
       </button>
 
     </div>
-
+{recentChats
+  .filter((chat) => chat.subject === subject)
+  .map((chat) => (
+    <button
+      key={chat.chat_id}
+      className="subject-chat-item"
+      onClick={() => loadChat(chat.chat_id)}
+    >
+      {chat.title}
+    </button>
+  ))}
   </div>
 )}
 
